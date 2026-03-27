@@ -8,15 +8,22 @@
   "plugins": [
     {
       "name": "google-ai-studio-to-prod",
-      "description": "Skills for graduating Google AI Studio prototypes to production — Cloud Run, CI/CD, monitoring, and security hardening on GCP",
+      "description": "Skills for graduating Google AI Studio prototypes to production — Cloud Run, Vercel, CI/CD, monitoring, and security hardening",
       "source": "./",
       "skills": [
         "./skills/analyze-and-document",
         "./skills/export-from-ai-studio",
+        "./skills/vercel-ai-studio-export",
+        "./skills/vercel-gcp-project-identification",
         "./skills/repo-initializer-google",
         "./skills/graduate-from-ai-studio",
         "./skills/cloud-run-deploy",
         "./skills/vercel-railway-deploy",
+        "./skills/vercel-nextjs-config",
+        "./skills/vercel-link",
+        "./skills/vercel-env",
+        "./skills/vercel-deploy",
+        "./skills/vercel-firebase-auth-domain",
         "./skills/ci-cd-github-actions",
         "./skills/monitoring-sentry-datadog",
         "./skills/security-hardening-gcp",
