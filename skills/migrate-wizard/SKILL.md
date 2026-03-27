@@ -83,10 +83,18 @@ AI Studio プロジェクトを本番環境にワンパスでマイグレーシ�
 **判定ルール:**
 - `git` がない → **中止**。`git --version` が失敗したらエラーメッセージを出して終了。
 - `gcloud` 認証済み → **フル自動化モード (Cloud Run)**: GCP プロジェクト設定、API 有効化、Cloud Run デプロイ、Secret Manager、IAM 設定をすべて自動実行。
-- `gcloud` 未認証 → **ファイル生成モード**: IaC ファイルと CI/CD 設定を生成し、リモート操作は手動コマンドとして Phase 5 Summary に集約。
-- `vercel` CLI 認証済み → **フル自動化モード (Vercel)**: vercel link, env, deploy, Firebase Auth domain 設定を自動実行。
-- `vercel` CLI 未認証 → Vercel 選択時はファイル生成 + 手動コマンドを Summary に集約。
+- `gcloud` 未認証 → **ファイル生成モード (Cloud Run)**: IaC ファイルと CI/CD 設定を生成し、リモート操作は手動コマンドとして Phase 5 Summary に集約。
 - その他のツールが不在 → 続行。影響を受けるステップは graceful degrade。
+
+**Vercel パスは `vercel` と `gcloud` の組み合わせで 3 モード:**
+
+| vercel CLI | gcloud CLI | モード名 | 動作 |
+|:----------:|:----------:|---------|------|
+| ✓ 認証済み | ✓ 認証済み | **FULL** | Step 3a-3e + Step 5 すべて自動実行 |
+| ✓ 認証済み | ✗ 未認証 | **PARTIAL** | Step 3a-3d 自動実行。Step 3e (Firebase Auth domain) と Step 5 (API Key 制限, Budget) は手動コマンドを Summary に集約 |
+| ✗ 未認証 | — | **FILE-GEN** | Step 3a のみ (ファイル生成)。Step 3b-3e は手動コマンドを Summary に集約 |
+
+Phase 3 の Plan Presentation と Phase 5 の Summary はこのモードに応じて表示を切り替える。
 
 **CLI 認証の推奨:**
 未認証のツールがある場合、以下を表示:
@@ -151,10 +159,13 @@ AI Studio プロジェクトを本番環境にワンパスでマイグレーシ�
    - **両方あれば完了。dependencies のみ → 部分完了。なければ未完了。**
 
 7. **セキュリティ状態を確認**
-   - `gcloud` が認証済みの場合:
-     - `gcloud iam service-accounts list` → デフォルト compute SA 以外の専用 SA が存在するか
-     - `gcloud secrets list` → Secret Manager にシークレットが格納されているか
-     - 両方 OK → 完了。一方のみ → 部分完了。
+   - `gcloud` が認証済みの場合 — 以下の **4項目すべて** を確認:
+     - `gcloud iam service-accounts list --project=PROJECT_ID` → デフォルト compute SA 以外の専用 SA が存在するか
+     - `gcloud secrets list --project=PROJECT_ID` → Secret Manager にシークレットが格納されているか
+     - `gcloud services api-keys list --project=PROJECT_ID` → API Key にリファラー制限が設定されているか
+     - `gcloud billing budgets list --billing-account=BILLING_ACCOUNT` → Budget alert が存在するか
+     - **4項目すべて OK → 完了。一部のみ → 部分完了 (不足項目のみ実行)。**
+     - 注意: SA + Secret Manager が存在しても、API Key 制限や Budget alert がなければ Step 5 は部分実行が必要。
    - `gcloud` 未認証の場合:
      - `unconfirmed` (実行推奨) として扱う
 
@@ -329,6 +340,9 @@ Step 4  monitoring-sentry-datadog
         → Sentry 初期化コード挿入 (server.ts)
         → Gemini API メトリクス追加
 
+Step 4.5  再デプロイ [自動実行] ★
+        → gcloud run deploy (監視コードを本番に反映)
+
 Step 5  security-hardening-gcp [自動実行] ★
         → Firebase API Key リファラー制限
         → Budget alert 設定
@@ -386,6 +400,9 @@ Step 4  monitoring-sentry-datadog
         → Sentry 初期化コード挿入
         → Gemini API メトリクス追加
 
+Step 4.5  再デプロイ [自動実行] ★
+        → vercel deploy --prod (監視コードを本番に反映)
+
 Step 5  security-hardening-gcp [自動実行] ★
         → Secret Manager 移行 (gcloud 認証済みの場合)
         → Firebase API Key リファラー制限
@@ -395,9 +412,16 @@ Step 5  security-hardening-gcp [自動実行] ★
 実行しますか？ (y/n)
 ```
 
-**Vercel パス (vercel 未認証 = ファイル生成モード):**
+**Vercel パス (PARTIAL: vercel ✓ / gcloud ✗):**
 ```
-Automation: PARTIAL (vercel ✗)
+Automation: PARTIAL (vercel ✓ / gcloud ✗)
+Step 3a-3d は自動実行。
+Step 3e (Firebase Auth domain) と Step 5 は gcloud 未認証のため手動コマンドを Summary に記載。
+```
+
+**Vercel パス (FILE-GEN: vercel ✗):**
+```
+Automation: FILE GENERATION ONLY (vercel ✗)
 Step 3a のみ実行 (ファイル生成)。Step 3b-3e は手動コマンドとして Summary に記載。
 ```
 
@@ -462,16 +486,18 @@ Step 3a のみ実行 (ファイル生成)。Step 3b-3e は手動コマンドと�
 - **前提:** Step 3 で Dockerfile, IaC ファイル, firebase.json が生成済み
 - **GCP project ID:** Q3.5 の回答を使用
 
+**重要: `gcloud config set project` は使用禁止。** `vercel-gcp-project-identification` スキルの規則に従い、すべてのコマンドで `--project=PROJECT_ID` を明示する。AI Studio の `gen-lang-client-*` プロジェクトとユーザーの作業用プロジェクトを取り違えるリスクを防ぐため。
+
 実行手順:
-1. `gcloud config set project PROJECT_ID`
-2. Q1 = 新規の場合: `gcloud projects create` + `firebase projects:addfirebase`
-3. API 有効化: `gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com cloudbuild.googleapis.com iam.googleapis.com`
-4. Artifact Registry リポジトリ作成
-5. Secret Manager にシークレット格納 (`.env` / `.env.local` から値を読み取り、なければユーザーに確認)
-6. 専用 SA 作成 + IAM 設定 (secretmanager.secretAccessor, datastore.user)
-7. `gcloud run deploy` (SA + secrets 付き)
-8. `firebase deploy --only firestore:rules,firestore:indexes` (`firebase` CLI がある場合)
-9. デプロイ確認: `curl SERVICE_URL/health`
+1. Q1 = 新規の場合: `gcloud projects create PROJECT_ID` + `firebase projects:addfirebase PROJECT_ID`
+2. API 有効化: `gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com cloudbuild.googleapis.com iam.googleapis.com --project=PROJECT_ID`
+3. Artifact Registry リポジトリ作成: `gcloud artifacts repositories create SERVICE --repository-format=docker --location=REGION --project=PROJECT_ID`
+4. Secret Manager にシークレット格納: `echo -n "VALUE" | gcloud secrets create gemini-api-key --data-file=- --project=PROJECT_ID` (`.env` / `.env.local` から値を読み取り、なければユーザーに確認)
+5. 専用 SA 作成: `gcloud iam service-accounts create SERVICE-sa --project=PROJECT_ID`
+6. IAM 設定: `gcloud projects add-iam-policy-binding PROJECT_ID --member=serviceAccount:SERVICE-sa@PROJECT_ID.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor` (+ `roles/datastore.user`)
+7. Cloud Run デプロイ: `gcloud run deploy SERVICE --source . --region REGION --service-account SERVICE-sa@PROJECT_ID.iam.gserviceaccount.com --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" --allow-unauthenticated --project=PROJECT_ID`
+8. Firebase デプロイ: `firebase deploy --only firestore:rules,firestore:indexes --project=PROJECT_ID` (`firebase` CLI がある場合)
+9. デプロイ確認: `gcloud run services describe SERVICE --region REGION --project=PROJECT_ID --format='value(status.url)'` → `curl SERVICE_URL/health`
 
 `gcloud` 未認証の場合: Step 3.5 は丸ごとスキップ。上記コマンドを Summary の手動作業リストに集約。
 
@@ -524,6 +550,17 @@ Step 3a のみ実行 (ファイル生成)。Step 3b-3e は手動コマンドと�
 - `.env.example` に DSN/API key を追加
 - **DSN/API key の値自体はユーザーが後で設定** → Summary の手動作業に含める
 
+**Step 4.5: 再デプロイ** (Step 4 で監視コードを追加した場合 AND CLI 認証済みの場合)
+
+> Step 3.5 / 3d でデプロイした後に Step 4 で Sentry/Datadog コードを追加しているため、本番に反映するには再デプロイが必要。
+
+- **Cloud Run パス** (`gcloud` 認証済み): `gcloud run deploy SERVICE --source . --region REGION --project=PROJECT_ID` (SA + secrets 設定は既存を引き継ぐ)
+- **Vercel パス** (`vercel` 認証済み): `vercel deploy --prod`
+- **CLI 未認証の場合:** Summary の手動作業に「監視コード追加後の再デプロイ」として記載
+- **Step 4 をスキップした場合:** Step 4.5 も丸ごとスキップ
+
+---
+
 **Step 5: security-hardening-gcp** (未完了/未確認 AND スキップ未選択の場合)
 - `skills/security-hardening-gcp/SKILL.md` を Read
 - `gcloud` 認証済みの場合 — 以下を**自動実行**:
@@ -543,10 +580,32 @@ Step 3a のみ実行 (ファイル生成)。Step 3b-3e は手動コマンドと�
 
 ### エラーハンドリング
 
+**ファイル操作系 (続行可能):**
 - **ファイル生成の失敗** → エラーを表示し、そのステップをスキップして次へ進む。Summary で未完了として報告。
-- **`gcloud` / `firebase` CLI 未認証** → リモート操作はスキップ。手動コマンドを Summary に集約。
-- **既存ファイルとの衝突** → 上書き前に diff を表示し、マージするか確認する。**これが唯一の実行中対話。**
+- **既存ファイルとの衝突** → 上書き前に diff を表示し、マージするか確認する。**これが実行中対話の一つ。**
 - **npm install / pip install の失敗** → 警告を出して続行。Summary に手動インストールコマンドを記載。
+
+**CLI コマンド系 (副作用あり — 失敗分類に応じて対応):**
+
+| 失敗したコマンド | 重大度 | 対応 |
+|----------------|--------|------|
+| `gcloud projects create` | **致命的** | Step 3.5 以降を丸ごと中止。Summary にエラーと手動復旧コマンドを記載。 |
+| `gcloud services enable` | **致命的** | 後続の AR, SM, SA, deploy がすべて依存。Step 3.5 を中止。 |
+| `gcloud secrets create` | 高 | Secret なしでデプロイ不可。Step 3.5 の deploy をスキップ。SA 作成は続行。 |
+| `gcloud run deploy` | 高 | デプロイ失敗。Step 4.5 (再デプロイ) もスキップ。Summary に手動デプロイコマンドを記載。 |
+| `firebase deploy` | 中 | Firestore rules/indexes が未適用。Cloud Run デプロイ自体は成功。Summary に手動コマンドを記載。 |
+| `vercel link` | **致命的 (Vercel パス)** | Step 3c-3e がすべて依存。Step 3a の成果物は残す。Summary に手動コマンドを記載。 |
+| `vercel env add` | 中 | デプロイは可能だが env 不足で動作しない可能性。警告して続行。 |
+| `vercel deploy --prod` | 高 | 本番デプロイ失敗。Step 3e (Firebase Auth domain) もスキップ (URL が不明)。Summary に手動コマンドを記載。 |
+| Firebase Auth domain PATCH | 中 | Google Sign-In が Vercel ドメインで動作しない。Summary に手動設定手順を記載。 |
+| `gcloud services api-keys update` (Step 5) | 中 | API Key 制限なし。セキュリティリスクだが動作には影響なし。Summary に警告と手動コマンドを記載。 |
+| `gcloud billing budgets create` (Step 5) | 低 | コスト管理なし。動作には影響なし。Summary に手動コマンドを記載。 |
+
+**共通ルール:**
+1. **致命的失敗:** 依存する後続ステップをすべてスキップ。ユーザーに即座に通知し、続行するか確認する。
+2. **高/中の失敗:** エラーを表示し、依存しないステップは続行。失敗ステップを Summary に `⚠ FAILED` として記載し、手動復旧コマンドを提供。
+3. **部分的に成功した状態:** Summary に「部分構築状態」セクションを追加し、何が完了して何が未完了かを明示。例: 「SA は作成済みだが Cloud Run デプロイは未完了」
+4. **すべての失敗で:** 失敗コマンドの stderr を Summary に含め、原因の特定を支援する。
 
 ### 進捗表示フォーマット
 
@@ -578,17 +637,21 @@ Step 3a のみ実行 (ファイル生成)。Step 3b-3e は手動コマンドと�
       ✓ Cloud Run デプロイ: https://SERVICE-xxxxx-an.a.run.app
       ✓ Firebase デプロイ: firestore rules + indexes
 
-[5/7] monitoring-sentry-datadog ...
+[5/8] monitoring-sentry-datadog ...
       ✓ npm install @sentry/node
       ✓ Sentry 初期化コード挿入 (server.ts)
       ✓ Gemini API メトリクス追加
 
-[6/7] security-hardening-gcp [自動実行] ...
+[6/8] 再デプロイ (監視コード反映) ...
+      ✓ gcloud run deploy SERVICE --project=PROJECT_ID ...
+      ✓ 再デプロイ完了
+
+[7/8] security-hardening-gcp [自動実行] ...
       ✓ Firebase API Key リファラー制限設定
       ✓ Budget alert 作成: $50/月
       ✓ Cloud Audit Logs 確認: 有効
 
-[7/7] デプロイ確認 ...
+[8/8] デプロイ確認 ...
       ✓ Health check: https://SERVICE-xxxxx-an.a.run.app/health → 200 OK
 ```
 
@@ -631,14 +694,21 @@ Step 5 はコード内改善のみ。GCP 操作は Summary に手動コマンド
       ✓ GCP プロジェクト特定: gen-lang-client-0a1b2c3d
       ✓ Firebase Auth authorized domains に my-app.vercel.app を追加
 
-[6/8] monitoring-sentry-datadog ...
+[6/9] monitoring-sentry-datadog ...
       ✓ npm install @sentry/nextjs
       ✓ Sentry 初期化コード挿入
       ✓ Gemini API メトリクス追加
 
-[7/8] security-hardening-gcp [自動実行] ...
+[7/9] 再デプロイ (監視コード反映) ...
+      ✓ vercel deploy --prod
+      ✓ https://my-app.vercel.app 更新完了
+
+[8/9] security-hardening-gcp [自動実行] ...
       ✓ Firebase API Key リファラー制限 (my-app.vercel.app 追加)
       ✓ Budget alert 設定
+
+[9/9] デプロイ確認 ...
+      ✓ https://my-app.vercel.app → 200 OK
 ```
 
 ---
@@ -693,13 +763,13 @@ GCP 構築済み:
 ```
 gcloud 未認証のため、GCP 操作は手動コマンドとして記載:
   1. gcloud auth login
-  2. gcloud config set project YOUR_PROJECT_ID
-  3. gcloud services enable run.googleapis.com ...
-  4. gcloud artifacts repositories create ...
-  5. gcloud secrets create ...
-  6. gcloud iam service-accounts create ...
-  7. gcloud run deploy ...
-  8. firebase deploy --only firestore
+  2. gcloud services enable run.googleapis.com ... --project=PROJECT_ID
+  3. gcloud artifacts repositories create SERVICE --project=PROJECT_ID ...
+  4. gcloud secrets create gemini-api-key --project=PROJECT_ID ...
+  5. gcloud iam service-accounts create SERVICE-sa --project=PROJECT_ID
+  6. gcloud run deploy SERVICE --project=PROJECT_ID ...
+  7. firebase deploy --only firestore --project=PROJECT_ID
+  ※ 全コマンドで --project= を明示 (gcloud config set project は使わない)
   (+ WIF, GitHub Secrets, 監視, API Key ローテーション)
 ```
 
@@ -745,7 +815,23 @@ GCP セキュリティ (gcloud 認証済みの場合):
 → 「開発環境セットアップして」 or 「setup dev environment」
 ```
 
-**Vercel パス (vercel 未認証):**
+**Vercel パス (PARTIAL: vercel ✓ / gcloud ✗):**
+```
+Vercel 構築済み:
+  ✓ プロジェクトリンク, 環境変数, デプロイ完了
+
+⚠ gcloud 未認証のため、以下は手動:
+  1. Firebase Auth authorized domain に Vercel URL を追加:
+     gcloud auth login
+     curl -X PATCH ... (vercel-firebase-auth-domain スキル参照)
+  2. Firebase API Key リファラー制限:
+     gcloud services api-keys update KEY_ID --project=PROJECT_ID ...
+  3. Budget alert 設定:
+     gcloud billing budgets create --billing-account=... --project=PROJECT_ID
+  (+ Sentry DSN, API Key ローテーション)
+```
+
+**Vercel パス (FILE-GEN: vercel ✗):**
 ```
 vercel 未認証のため、Vercel 操作は手動コマンドとして記載:
   1. npm i -g vercel && vercel login
@@ -790,4 +876,4 @@ vercel 未認証のため、Vercel 操作は手動コマンドとして記載:
 - **apiKey ローテーションを忘れる** → git history に残った apiKey は取り消せない。Google Cloud Console で再発行が必要。
 - **Secret の値確認を忘れる** → Step 3.5 / 3c で `.env` / `.env.local` から値を自動読み取りするが、ファイルがない場合は空の値が設定される。事前に値があることを確認。
 - **Vercel で `output: 'standalone'` を残す** → Vercel では不要で、ビルドエラーの原因になる。Step 3a で自動除去するが、手動でも確認すること。
-- **監視コード追加後の再デプロイを忘れる** → Step 4 で Sentry/Datadog を追加した後、デプロイ済みサービスに反映するには再デプロイが必要。
+- **Step 4.5 の再デプロイ失敗を見逃す** → 監視コード追加後の再デプロイが失敗すると、本番に監視が反映されない。エラーが出たら Summary の手動作業を確認。
