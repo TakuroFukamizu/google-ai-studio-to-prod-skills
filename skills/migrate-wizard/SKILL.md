@@ -16,9 +16,10 @@ AI Studio プロジェクトを本番環境にワンパスでマイグレーシ�
 | 0 | analyze-and-document | プロジェクト分析 → CLAUDE.md 生成 |
 | 1 | export-from-ai-studio | コード整形 + apiKey サニタイズ |
 | 2 | repo-initializer-google | GitHub リポ整備 (.gitignore, README) |
-| 3 | graduate-from-ai-studio | Dockerfile + IaC + CI/CD + Firebase 設定 |
+| 3 | graduate-from-ai-studio | Dockerfile + IaC + CI/CD + Firebase 設定 **ファイル生成** |
+| 3.5 | cloud-run-deploy | **GCP インフラ構築 + 初回デプロイ** (gcloud 認証済みの場合) |
 | 4 | monitoring-sentry-datadog | 監視・エラートラッキング |
-| 5 | security-hardening-gcp | セキュリティ強化 |
+| 5 | security-hardening-gcp | セキュリティ強化 (SA, Secret Manager, API Key 制限) |
 
 **v1 ではデプロイ先は Cloud Run のみ。** Vercel/Railway を使いたい場合は `vercel-railway-deploy` スキルを個別に使用すること。
 
@@ -66,8 +67,19 @@ AI Studio プロジェクトを本番環境にワンパスでマイグレーシ�
 
 **判定ルール:**
 - `git` がない → **中止**。`git --version` が失敗したらエラーメッセージを出して終了。
-- `gcloud` 未認証 → 続行。リモート操作 (SA 作成, Secret Manager, API key 制限等) はすべて手動コマンドとして Phase 5 Summary に集約。
+- `gcloud` 認証済み → **フル自動化モード**: GCP プロジェクト作成、API 有効化、Cloud Run デプロイ、Secret Manager、IAM 設定をすべて自動実行。
+- `gcloud` 未認証 → **ファイル生成モード**: IaC ファイルと CI/CD 設定を生成し、リモート操作は手動コマンドとして Phase 5 Summary に集約。ユーザーに `gcloud auth login` を推奨する。
 - その他のツールが不在 → 続行。影響を受けるステップは graceful degrade。
+
+**`gcloud` 認証の推奨:**
+```
+⚠ gcloud が未認証です。
+  認証すると GCP インフラ構築・デプロイまで自動化できます。
+  今すぐ認証しますか？
+
+  (a) はい — gcloud auth login を実行 [推奨]
+  (b) いいえ — ファイル生成のみで進める (デプロイは手動)
+```
 
 ---
 
@@ -182,6 +194,12 @@ Q2. IaC ツール:
 
 Q3. GCP リージョン: [asia-northeast1] ← Enter でデフォルト
 
+Q3.5. GCP プロジェクト ID:              ← gcloud 認証済みの場合のみ
+  現在のプロジェクト: my-project-123
+  (a) このプロジェクトを使う
+  (b) 別のプロジェクト ID を入力: ________
+  (c) 新規プロジェクトを作成: ________
+
 --- 監視 ---
 
 Q4. 監視ツール:
@@ -204,6 +222,7 @@ Q5. セキュリティ強化:
 | Q1 (Firebase project) | Step 3 未完了 OR Step 5 未完了/未確認 |
 | Q2 (IaC tool) | Step 3 未完了 |
 | Q3 (GCP region) | Step 3 未完了 |
+| Q3.5 (GCP project ID) | `gcloud` 認証済み AND (Step 3 OR Step 3.5 OR Step 5 未完了) |
 | Q4 (Monitoring) | Step 4 未完了/未確認 |
 | Q5 (Security) | Step 5 未完了/未確認 |
 
@@ -228,7 +247,8 @@ Phase 2 の回答を元に実行計画を表示。ユーザーの `y` で実行�
 
 Target: Cloud Run (asia-northeast1) / Terraform / Sentry
 Firebase: New project
-Tools: gcloud ✓ / firebase ✓ / terraform △ (要インストール)
+GCP Project: my-project-123
+Automation: FULL (gcloud ✓ / firebase ✓)
 
 Step 1  export-from-ai-studio
         → firebase-applet-config.json apiKey サニタイズ
@@ -239,26 +259,45 @@ Step 2  repo-initializer-google (部分実行)
         → .gitignore: .env, service-account*.json 追加
         → README: セットアップ手順追記
 
-Step 3  graduate-from-ai-studio
+Step 3  graduate-from-ai-studio [ファイル生成]
         → Dockerfile + .dockerignore (Node.js multi-stage)
         → infra/terraform/ (main.tf, variables.tf, outputs.tf, terraform.tfvars.example)
         → .github/workflows/deploy.yml (Workload Identity Federation)
         → firebase.json + .firebaserc + firestore.indexes.json
         → .env.example 更新
 
+Step 3.5  cloud-run-deploy [GCP 自動構築 + デプロイ] ★
+        → GCP API 有効化 (Cloud Run, Artifact Registry, Secret Manager)
+        → Artifact Registry リポジトリ作成
+        → Secret Manager にシークレット格納
+        → 専用 SA 作成 + IAM 設定
+        → Cloud Run に初回デプロイ
+        → Firebase ルール・インデックスをデプロイ
+
 Step 4  monitoring-sentry-datadog
         → npm install @sentry/node
         → Sentry 初期化コード挿入 (server.ts)
         → Gemini API メトリクス追加
 
-Step 5  security-hardening-gcp
-        → 専用 SA 作成 + 最小権限 IAM
-        → Secret Manager 移行 (GEMINI_API_KEY, FIREBASE_API_KEY)
+Step 5  security-hardening-gcp [自動実行] ★
         → Firebase API Key リファラー制限
         → Budget alert 設定
+        → Cloud Audit Logs 確認
 
 生成予定ファイル数: 約 15
+★ = gcloud で自動実行 (認証済み)
 実行しますか？ (y/n)
+```
+
+**gcloud 未認証の場合の Plan 表示:**
+```
+Automation: FILE GENERATION ONLY (gcloud ✗)
+
+Step 3.5  cloud-run-deploy [スキップ — gcloud 未認証]
+        → 手動コマンドを Summary に記載
+
+Step 5  security-hardening-gcp [コード改善のみ]
+        → リモート操作は手動コマンドを Summary に記載
 ```
 
 **完了済みステップは表示しない。** スキップしたステップ (Q4/Q5 でスキップ選択) も表示しない。
@@ -313,6 +352,90 @@ Step 5  security-hardening-gcp
 - SKILL.md の Phase 4 (ファイル生成) を実行
 - 部分完了の場合: 不足ファイルのみ生成
 
+**Step 3.5: cloud-run-deploy — GCP インフラ構築 + 初回デプロイ** (`gcloud` 認証済みの場合のみ)
+
+> **このステップが「手動作業」を自動化する核心。** `cloud-run-deploy` スキルの実行能力を使い、Step 3 で生成したファイルを使って実際に GCP 上にインフラを構築しデプロイする。
+
+- `skills/cloud-run-deploy/SKILL.md` を Read
+- **前提:** Step 3 で Dockerfile, IaC ファイル, firebase.json が生成済み
+- **GCP project ID:** Q3.5 の回答を使用
+
+実行手順 (`gcloud` 認証済みの場合):
+
+1. **GCP プロジェクト設定:**
+   ```
+   gcloud config set project PROJECT_ID
+   ```
+   - Q1 = 新規 AND Q3.5 = 新規作成 の場合:
+     ```
+     gcloud projects create PROJECT_ID
+     gcloud billing projects link PROJECT_ID --billing-account=BILLING_ACCOUNT
+     firebase projects:addfirebase PROJECT_ID
+     ```
+
+2. **API 有効化:**
+   ```
+   gcloud services enable \
+     run.googleapis.com \
+     artifactregistry.googleapis.com \
+     secretmanager.googleapis.com \
+     cloudbuild.googleapis.com \
+     iam.googleapis.com
+   ```
+
+3. **Artifact Registry リポジトリ作成:**
+   ```
+   gcloud artifacts repositories create SERVICE_NAME \
+     --repository-format=docker \
+     --location=REGION
+   ```
+
+4. **Secret Manager にシークレット格納:**
+   - GEMINI_API_KEY の値をユーザーに確認 (`.env` または `.env.local` から読み取り)
+   - 値が取得できない場合はユーザーに入力を求める
+   ```
+   echo -n "VALUE" | gcloud secrets create gemini-api-key --data-file=-
+   ```
+   - FIREBASE_API_KEY も同様 (存在する場合)
+
+5. **専用サービスアカウント作成 + IAM 設定:**
+   ```
+   gcloud iam service-accounts create SERVICE_NAME-sa \
+     --display-name="SERVICE_NAME Cloud Run SA"
+
+   gcloud projects add-iam-policy-binding PROJECT_ID \
+     --member=serviceAccount:SERVICE_NAME-sa@PROJECT_ID.iam.gserviceaccount.com \
+     --role=roles/secretmanager.secretAccessor
+
+   gcloud projects add-iam-policy-binding PROJECT_ID \
+     --member=serviceAccount:SERVICE_NAME-sa@PROJECT_ID.iam.gserviceaccount.com \
+     --role=roles/datastore.user
+   ```
+
+6. **Cloud Run にデプロイ:**
+   ```
+   gcloud run deploy SERVICE_NAME \
+     --source . \
+     --region REGION \
+     --service-account SERVICE_NAME-sa@PROJECT_ID.iam.gserviceaccount.com \
+     --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" \
+     --allow-unauthenticated
+   ```
+
+7. **Firebase デプロイ** (`firebase` CLI がある場合):
+   ```
+   firebase use PROJECT_ID
+   firebase deploy --only firestore:rules,firestore:indexes
+   ```
+
+8. **デプロイ確認:**
+   ```
+   gcloud run services describe SERVICE_NAME --region REGION --format='value(status.url)'
+   curl -s SERVICE_URL/health
+   ```
+
+`gcloud` 未認証の場合: Step 3.5 は丸ごとスキップ。上記コマンドを Summary の手動作業リストに集約。
+
 **Step 4: monitoring-sentry-datadog** (未完了/未確認 AND スキップ未選択の場合)
 - `skills/monitoring-sentry-datadog/SKILL.md` を Read
 - Q4 の回答に基づいて Sentry / Datadog / 両方を設定
@@ -320,13 +443,34 @@ Step 5  security-hardening-gcp
 - サーバーエントリポイントに初期化コード挿入
 - `.env.example` に DSN/API key を追加
 - **DSN/API key の値自体はユーザーが後で設定** → Summary の手動作業に含める
+- Step 3.5 でデプロイ済みの場合: 監視コード追加後に再デプロイが必要 → Summary に案内
 
 **Step 5: security-hardening-gcp** (未完了/未確認 AND スキップ未選択の場合)
 - `skills/security-hardening-gcp/SKILL.md` を Read
-- `gcloud` 認証済みの場合:
-  - 専用 SA 作成、IAM 設定、Secret Manager 移行、API key 制限を実行
+- `gcloud` 認証済みの場合 — 以下を**自動実行**:
+  - **API Key 制限** (Firebase Web API Key にリファラー制限):
+    ```
+    gcloud services api-keys update KEY_ID \
+      --allowed-referrers="SERVICE_URL/*" \
+      --api-target=service=firestore.googleapis.com \
+      --api-target=service=identitytoolkit.googleapis.com
+    ```
+  - **Budget alert 設定:**
+    ```
+    gcloud billing budgets create \
+      --billing-account=BILLING_ACCOUNT \
+      --display-name="SERVICE_NAME monthly budget" \
+      --budget-amount=50USD \
+      --threshold-rule=percent=0.5 \
+      --threshold-rule=percent=0.9
+    ```
+  - **Cloud Audit Logs 確認:**
+    ```
+    gcloud projects get-iam-policy PROJECT_ID --format=json | grep -c auditLogConfigs
+    ```
   - Q1 で既存プロジェクト選択 → 既存インフラに対して hardening
-  - Q1 で新規プロジェクト選択 → 新規構成でセキュア設計 (IaC に反映済み)
+  - Q1 で新規プロジェクト選択 → Step 3.5 で既にセキュア構成済み (SA, Secret Manager)。追加で API Key 制限と Budget alert のみ。
+  - **注意:** Step 3.5 で SA 作成・Secret Manager 設定済みなので重複しない。Step 5 は Step 3.5 がカバーしない項目 (API Key 制限, Budget, Audit Logs) に集中。
 - `gcloud` 未認証の場合:
   - コード内のセキュリティ改善のみ実行
   - リモート操作コマンドを Summary に集約
@@ -340,32 +484,65 @@ Step 5  security-hardening-gcp
 
 ### 進捗表示フォーマット
 
+**gcloud 認証済み (フル自動化モード):**
 ```
-[1/5] export-from-ai-studio ...
+[1/7] export-from-ai-studio ...
       ✓ firebase-applet-config.json apiKey → プレースホルダー化
       ✓ src/lib/firebase.ts → 環境変数注入に変更
       ✓ .env.example 生成
 
-[2/5] repo-initializer-google (部分実行) ...
+[2/7] repo-initializer-google (部分実行) ...
       ✓ .gitignore 更新 (.env, service-account*.json 追加)
       ✓ README.md セットアップ手順追記
       — GitHub repo 作成: スキップ (既存)
 
-[3/5] graduate-from-ai-studio ...
+[3/7] graduate-from-ai-studio [ファイル生成] ...
       ✓ Dockerfile + .dockerignore
       ✓ infra/terraform/ (4 files)
       ✓ .github/workflows/deploy.yml
       ✓ firebase.json + .firebaserc + firestore.indexes.json
       ✓ .env.example 更新
 
-[4/5] monitoring-sentry-datadog ...
+[4/7] cloud-run-deploy [GCP 自動構築] ...
+      ✓ GCP API 有効化 (run, artifactregistry, secretmanager, cloudbuild, iam)
+      ✓ Artifact Registry リポジトリ作成: asia-northeast1-docker.pkg.dev/PROJECT/SERVICE
+      ✓ Secret Manager: gemini-api-key 作成
+      ✓ SA 作成: SERVICE-sa@PROJECT.iam.gserviceaccount.com
+      ✓ IAM: secretmanager.secretAccessor, datastore.user 付与
+      ✓ Cloud Run デプロイ: https://SERVICE-xxxxx-an.a.run.app
+      ✓ Firebase デプロイ: firestore rules + indexes
+
+[5/7] monitoring-sentry-datadog ...
       ✓ npm install @sentry/node
       ✓ Sentry 初期化コード挿入 (server.ts)
       ✓ Gemini API メトリクス追加
 
-[5/5] security-hardening-gcp ...
-      ⚠ gcloud 未認証 — リモート操作は手動コマンドとして案内
+[6/7] security-hardening-gcp [自動実行] ...
+      ✓ Firebase API Key リファラー制限設定
+      ✓ Budget alert 作成: $50/月
+      ✓ Cloud Audit Logs 確認: 有効
+
+[7/7] デプロイ確認 ...
+      ✓ Health check: https://SERVICE-xxxxx-an.a.run.app/health → 200 OK
+```
+
+**gcloud 未認証 (ファイル生成モード):**
+```
+[1/5] export-from-ai-studio ...
+      ✓ (同上)
+
+[2/5] repo-initializer-google (部分実行) ...
+      ✓ (同上)
+
+[3/5] graduate-from-ai-studio [ファイル生成] ...
+      ✓ (同上)
+
+[4/5] monitoring-sentry-datadog ...
+      ✓ (同上)
+
+[5/5] security-hardening-gcp [コード改善のみ] ...
       ✓ コード内セキュリティ改善完了
+      ⚠ gcloud 未認証 — GCP 操作は手動コマンドとして Summary に記載
 ```
 
 ---
@@ -374,7 +551,7 @@ Step 5  security-hardening-gcp
 
 全ステップ完了後、生成ファイル一覧と手動作業リストを表示する。
 
-### 出力フォーマット
+### 出力フォーマット — フル自動化モード (gcloud 認証済み)
 
 ```
 === Migration Complete ===
@@ -396,36 +573,48 @@ Step 5  security-hardening-gcp
     ✓ firebase.json + .firebaserc + firestore.indexes.json
     ✓ .env.example (更新)
 
+GCP 構築済み:
+  Step 3.5: cloud-run-deploy
+    ✓ API 有効化: run, artifactregistry, secretmanager, cloudbuild, iam
+    ✓ Artifact Registry: asia-northeast1-docker.pkg.dev/PROJECT/SERVICE
+    ✓ Secret Manager: gemini-api-key
+    ✓ SA: SERVICE-sa@PROJECT.iam.gserviceaccount.com
+    ✓ Cloud Run: https://SERVICE-xxxxx-an.a.run.app
+    ✓ Firebase: firestore rules + indexes deployed
+
   Step 4: monitoring-sentry-datadog
     ✓ package.json (@sentry/node 追加)
     ✓ server.ts (Sentry 初期化挿入)
 
   Step 5: security-hardening-gcp
-    ✓ コード内セキュリティ改善
+    ✓ Firebase API Key リファラー制限
+    ✓ Budget alert: $50/月
+    ✓ Cloud Audit Logs 確認
 
-⚠ 手動作業:
-  1. GCP プロジェクト作成:
-     gcloud projects create YOUR_PROJECT_ID
-     firebase projects:addfirebase YOUR_PROJECT_ID
-
-  2. Terraform 初期化:
-     cd infra/terraform && terraform init && terraform plan
-
-  3. GitHub Secrets 設定:
-     - WIF_PROVIDER
-     - WIF_SERVICE_ACCOUNT
-     - GCP_PROJECT_ID
-     - SENTRY_DSN
-
-  4. Workload Identity Federation 設定:
+⚠ 残りの手動作業 (CI/CD 用):
+  1. Workload Identity Federation 設定:
+     → GitHub Actions から GCP に認証するために必要
      https://github.com/google-github-actions/auth#workload-identity-federation
 
-  5. 初回デプロイ:
-     git push origin main
+  2. GitHub Secrets 設定:
+     gh secret set WIF_PROVIDER --body "..."
+     gh secret set WIF_SERVICE_ACCOUNT --body "SERVICE-sa@PROJECT.iam.gserviceaccount.com"
+     gh secret set GCP_PROJECT_ID --body "PROJECT"
 
-  6. API Key ローテーション (推奨):
+  3. 監視の認証情報 (Sentry DSN 等):
+     gh secret set SENTRY_DSN --body "https://xxx@sentry.io/yyy"
+
+  4. API Key ローテーション (推奨):
      firebase-applet-config.json の apiKey が git history に残っている場合、
      Google Cloud Console で API Key を再発行してください。
+
+  5. CI/CD 初回テスト:
+     git push origin main → GitHub Actions が自動デプロイ
+
+=== サービス稼働中 ===
+
+  URL: https://SERVICE-xxxxx-an.a.run.app
+  Health: https://SERVICE-xxxxx-an.a.run.app/health → 200 OK
 
 === Next: Development Environment ===
 
@@ -434,29 +623,89 @@ Claude Code の開発体験を整えるには:
   (setup-dev-environment skill: rules, hooks, permissions を .claude/ に構築)
 ```
 
+### 出力フォーマット — ファイル生成モード (gcloud 未認証)
+
+```
+=== Migration Complete (ファイル生成のみ) ===
+
+生成・変更したファイル:
+  (上記と同じ Step 1-3 のファイルリスト)
+
+  Step 4: monitoring-sentry-datadog
+    ✓ package.json (@sentry/node 追加)
+    ✓ server.ts (Sentry 初期化挿入)
+
+  Step 5: security-hardening-gcp
+    ✓ コード内セキュリティ改善
+
+⚠ 手動作業 (gcloud 認証後に実行):
+  1. GCP 認証:
+     gcloud auth login
+
+  2. GCP プロジェクト設定:
+     gcloud config set project YOUR_PROJECT_ID
+
+  3. GCP API 有効化:
+     gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
+       secretmanager.googleapis.com cloudbuild.googleapis.com iam.googleapis.com
+
+  4. Artifact Registry リポジトリ作成:
+     gcloud artifacts repositories create SERVICE --repository-format=docker --location=REGION
+
+  5. Secret Manager にシークレット格納:
+     echo -n "YOUR_KEY" | gcloud secrets create gemini-api-key --data-file=-
+
+  6. SA 作成 + IAM 設定:
+     gcloud iam service-accounts create SERVICE-sa --display-name="SERVICE Cloud Run SA"
+     gcloud projects add-iam-policy-binding PROJECT \
+       --member=serviceAccount:SERVICE-sa@PROJECT.iam.gserviceaccount.com \
+       --role=roles/secretmanager.secretAccessor
+     gcloud projects add-iam-policy-binding PROJECT \
+       --member=serviceAccount:SERVICE-sa@PROJECT.iam.gserviceaccount.com \
+       --role=roles/datastore.user
+
+  7. Cloud Run デプロイ:
+     gcloud run deploy SERVICE --source . --region REGION \
+       --service-account SERVICE-sa@PROJECT.iam.gserviceaccount.com \
+       --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" \
+       --allow-unauthenticated
+
+  8. Firebase デプロイ:
+     firebase use PROJECT
+     firebase deploy --only firestore:rules,firestore:indexes
+
+  9. セキュリティ強化:
+     (API Key 制限, Budget alert — security-hardening-gcp スキルを個別実行)
+
+  10. CI/CD 設定:
+      (WIF, GitHub Secrets — 上記フル自動化モードの手動作業 1-3 と同じ)
+
+=== Next: Development Environment ===
+
+Claude Code の開発体験を整えるには:
+→ 「開発環境セットアップして」 or 「setup dev environment」
+```
+
 ### 手動作業リストの動的生成ルール
 
 | 条件 | 手動作業に含める |
 |------|----------------|
-| Q1 = 新規プロジェクト | `gcloud projects create` + `firebase projects:addfirebase` |
-| Q1 = 既存プロジェクト | プロジェクト作成はスキップ |
-| Q2 = Terraform | `terraform init && terraform plan` |
-| Q2 = Pulumi | `cd infra/pulumi && npm install && pulumi up` |
-| Q2 = CLI スクリプト | `bash infra/scripts/setup.sh` |
-| `terraform`/`pulumi` 未インストール | ツールのインストール手順 |
-| Q4 = Sentry | Sentry DSN の取得 + GitHub Secrets 設定 |
-| Q4 = Datadog | Datadog API Key の取得 + GitHub Secrets 設定 |
+| `gcloud` 認証済み | WIF + GitHub Secrets + 監視認証情報 + apiKey ローテーション のみ |
+| `gcloud` 未認証 | GCP 構築の全コマンド (API 有効化 → AR → SM → SA → Cloud Run → Firebase) |
+| Q4 = Sentry | Sentry DSN の GitHub Secrets 設定 |
+| Q4 = Datadog | Datadog API Key の GitHub Secrets 設定 |
 | Q4 = スキップ | 監視関連なし |
-| `gcloud` 未認証 | SA 作成, Secret Manager, API key 制限のコマンド一覧 |
 | apiKey が git history に存在 | API Key ローテーション手順 |
-| WIF 未設定 | WIF 設定ドキュメントへのリンク |
+| WIF 未設定 | WIF 設定ドキュメントへのリンク (常に含める — GitHub 側設定は自動化不可) |
 
 ---
 
 ## Common Mistakes
 
-- **Phase 0 をスキップして `gcloud` 未認証のまま進む** → Step 3, 5 のリモート操作が全部手動になる。最初に認証を推奨。
+- **`gcloud` 未認証のまま進む** → ファイル生成モードになり、GCP 構築・デプロイが全部手動になる。Phase 0 で認証を強く推奨。
 - **Step 0 (CLAUDE.md) なしで進む** → Step 3 のフレームワーク検出精度が下がる。CLAUDE.md があると情報が補完される。
 - **既存ファイルの衝突で「上書き」を安易に選ぶ** → 既にカスタマイズされた Dockerfile や workflow を壊す可能性。diff を確認すること。
-- **手動作業リストを無視する** → 特に WIF と GitHub Secrets は設定しないと CI/CD が動かない。
+- **WIF と GitHub Secrets を設定しない** → フル自動化モードでも CI/CD は WIF がないと動かない。Summary の手動作業は必ず実行すること。
 - **apiKey ローテーションを忘れる** → git history に残った apiKey は取り消せない。Google Cloud Console で再発行が必要。
+- **Step 3.5 で GEMINI_API_KEY の値を確認せずに進む** → Secret Manager に空の値が入る。`.env` / `.env.local` に正しい値があることを事前に確認。
+- **監視コード追加後の再デプロイを忘れる** → Step 4 で Sentry/Datadog を追加した場合、Cloud Run を再デプロイしないと反映されない。
