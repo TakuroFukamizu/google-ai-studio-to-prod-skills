@@ -166,87 +166,74 @@ Proceed? (y/n)
 
 ### Phase 4: Sequential Execution
 
-Execute each step by reading the corresponding skill's SKILL.md at `skills/<skill-name>/SKILL.md` and following its generation instructions. Phase 2 answers replace all interactive decision points within each skill.
+Two modes based on `gcloud` auth status:
 
-**Execution protocol per skill:**
-1. Read `skills/<skill-name>/SKILL.md`
-2. Execute detection/analysis phase (Phase 1 of each skill) — use wizard's Phase 1 results as cache
-3. Skip skill's question/approval phases — answers already collected
-4. Execute generation phase with pre-supplied configuration
-5. Report generated files
+**Full automation mode (gcloud authenticated):**
+- Steps 0-3: File generation (same as before)
+- Step 3.5 (NEW): `cloud-run-deploy` skill executes `gcloud` commands to build real infrastructure and deploy
+- Step 4: Monitoring SDK installation
+- Step 5: `security-hardening-gcp` auto-executes API key restrictions, budget alerts, audit logs
+- Step 7: Deployment verification (health check)
+
+**File generation mode (gcloud unauthenticated):**
+- Steps 0-4: File generation only
+- Step 5: Code-level security only
+- All GCP commands collected in Summary as manual steps
+
+**Step 3.5: cloud-run-deploy — GCP Infrastructure + First Deploy**
+
+This is the key addition. After Step 3 generates Dockerfile, IaC, and CI/CD files, Step 3.5 uses `cloud-run-deploy` skill's execution capability to:
+
+1. Set GCP project (`gcloud config set project`)
+2. Create project if new (`gcloud projects create` + `firebase projects:addfirebase`)
+3. Enable APIs (run, artifactregistry, secretmanager, cloudbuild, iam)
+4. Create Artifact Registry repository
+5. Store secrets in Secret Manager (GEMINI_API_KEY from `.env`/`.env.local`)
+6. Create dedicated service account + IAM bindings
+7. Deploy to Cloud Run with secrets and SA
+8. Deploy Firebase rules and indexes
+9. Verify deployment (health check)
+
+**Step 5 responsibilities (with gcloud):**
+- Step 3.5 already handles SA + Secret Manager → no duplication
+- Step 5 focuses on: API Key restrictions, budget alerts, Cloud Audit Logs
 
 **Key behaviors:**
 - Skip user interaction within each skill (answers already collected)
 - Display progress per step with generated file list
 - On file conflict: show diff and ask whether to merge (only mid-execution interaction allowed)
 - On error: display error, skip that step, continue to next. Report in summary.
-- On `gcloud`/`firebase` CLI unavailable: skip remote operations, collect manual commands for summary.
-
-**Progress format:**
-```
-[1/5] export-from-ai-studio ...
-      ✓ firebase-applet-config.json apiKey → placeholder
-      ✓ src/lib/firebase.ts → env var injection
-      ✓ .env.example generated
-
-[2/5] repo-initializer-google (partial) ...
-      ✓ .gitignore updated
-      ✓ README.md appended
-      — GitHub repo creation: skipped (exists)
-
-[3/5] graduate-from-ai-studio ...
-      ✓ Dockerfile + .dockerignore
-      ✓ infra/terraform/ (4 files)
-      ✓ .github/workflows/deploy.yml
-      ✓ firebase.json + .firebaserc + firestore.indexes.json
-      ✓ .env.example updated
-
-[4/5] monitoring-sentry-datadog ...
-      ✓ @sentry/node added to package.json
-      ✓ Sentry init inserted in server.ts
-      ✓ Gemini metrics helpers added
-
-[5/5] security-hardening-gcp ...
-      ⚠ gcloud unauthenticated — remote operations deferred
-      ✓ Code-level security improvements applied
-      → Manual commands collected for summary
-```
+- Secret values: read from `.env`/`.env.local` if available, otherwise prompt user
 
 ### Phase 5: Summary & Next Steps
 
-Display all generated/modified files grouped by step, followed by manual action items.
+**Full automation mode** — minimal manual work remaining:
+- WIF setup (GitHub ↔ GCP auth, cannot be automated from CLI alone)
+- GitHub Secrets (WIF_PROVIDER, WIF_SERVICE_ACCOUNT, GCP_PROJECT_ID)
+- Monitoring credentials (Sentry DSN / Datadog API key)
+- API Key rotation if apiKey was in git history
+- Service URL displayed with health check confirmation
 
-**Manual action list is dynamic based on:**
-- `gcloud` auth status → if unauthenticated, list all GCP commands (SA creation, Secret Manager, API enablement)
-- Q1 = new project → include `gcloud projects create` + `firebase projects:addfirebase`
-- Q1 = existing project → skip project creation, include hardening commands
-- IaC tool → include corresponding init command (`terraform init`, `pulumi up`, or `bash infra/scripts/setup.sh`)
-- `terraform`/`pulumi` not installed → include install instructions
-- Monitoring choice → Sentry DSN / Datadog API key setup in GitHub Secrets
-- apiKey in git history → recommend key rotation with specific steps
-- WIF setup → link to google-github-actions/auth documentation
+**File generation mode** — full GCP setup commands listed:
+- All `gcloud` commands for infrastructure provisioning
+- Deploy commands
+- Security hardening commands
 
-**Always end with:**
-```
-=== Next: Development Environment ===
-
-Claude Code の開発体験を整えるには:
-→ 「開発環境セットアップして」 or 「setup dev environment」
-  (setup-dev-environment skill: rules, hooks, permissions を .claude/ に構築)
-```
+**Always end with setup-dev-environment recommendation.**
 
 ## Skill Integration
 
 The wizard reads and delegates to these skills (Cloud Run path only in v1):
 
-| Step | Skill | SKILL.md path |
-|------|-------|--------------|
-| 0 | analyze-and-document | `skills/analyze-and-document/SKILL.md` |
-| 1 | export-from-ai-studio | `skills/export-from-ai-studio/SKILL.md` |
-| 2 | repo-initializer-google | `skills/repo-initializer-google/SKILL.md` |
-| 3 | graduate-from-ai-studio | `skills/graduate-from-ai-studio/SKILL.md` |
-| 4 | monitoring-sentry-datadog | `skills/monitoring-sentry-datadog/SKILL.md` |
-| 5 | security-hardening-gcp | `skills/security-hardening-gcp/SKILL.md` |
+| Step | Skill | SKILL.md path | Role |
+|------|-------|--------------|------|
+| 0 | analyze-and-document | `skills/analyze-and-document/SKILL.md` | Project analysis |
+| 1 | export-from-ai-studio | `skills/export-from-ai-studio/SKILL.md` | Code cleanup |
+| 2 | repo-initializer-google | `skills/repo-initializer-google/SKILL.md` | Repo setup |
+| 3 | graduate-from-ai-studio | `skills/graduate-from-ai-studio/SKILL.md` | **File generation** |
+| 3.5 | cloud-run-deploy | `skills/cloud-run-deploy/SKILL.md` | **GCP provisioning + deploy** |
+| 4 | monitoring-sentry-datadog | `skills/monitoring-sentry-datadog/SKILL.md` | Monitoring SDK |
+| 5 | security-hardening-gcp | `skills/security-hardening-gcp/SKILL.md` | **Security hardening** |
 
 **Future (v2):** Add Vercel/Railway path when `vercel-railway-deploy` SKILL.md has generation-level detail comparable to `graduate-from-ai-studio`.
 
