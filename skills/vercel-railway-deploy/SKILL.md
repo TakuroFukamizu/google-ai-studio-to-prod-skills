@@ -1,6 +1,6 @@
 ---
 name: vercel-railway-deploy
-description: Use when deploying a Gemini or AI application to Vercel or Railway instead of GCP, or when the user prefers non-Google cloud platforms for hosting their AI Studio prototype
+description: Use when deploying to Vercel or Railway. For Vercel, detailed sub-skills (vercel-link, vercel-env, vercel-deploy, vercel-nextjs-config, vercel-firebase-auth-domain) are available. migrate-wizard orchestrates them automatically
 ---
 
 # Vercel / Railway Deploy
@@ -54,6 +54,20 @@ app/
 ├── layout.tsx
 └── globals.css
 ```
+
+### Vercel 詳細スキル
+
+Vercel デプロイの各ステップには専用スキルがあります。`migrate-wizard` でワンパスマイグレーションする場合はこれらが自動で呼ばれます:
+
+| Skill | 役割 |
+|-------|------|
+| [vercel-ai-studio-export](../vercel-ai-studio-export/) | AI Studio エクスポート構造のナレッジ |
+| [vercel-gcp-project-identification](../vercel-gcp-project-identification/) | GCP プロジェクト特定のナレッジ |
+| [vercel-nextjs-config](../vercel-nextjs-config/) | Next.js 設定の Vercel 向け調整 |
+| [vercel-link](../vercel-link/) | Vercel プロジェクトへのリンク |
+| [vercel-env](../vercel-env/) | Vercel 環境変数管理 |
+| [vercel-deploy](../vercel-deploy/) | プレビュー → 本番デプロイ |
+| [vercel-firebase-auth-domain](../vercel-firebase-auth-domain/) | Firebase Auth authorized domain 追加 |
 
 ## Railway Quick Reference
 

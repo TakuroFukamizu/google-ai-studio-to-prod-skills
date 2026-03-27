@@ -4,7 +4,7 @@ Google AI Studio のプロトタイプを本番環境に持っていくための
 
 ## Overview
 
-Google AI Studio は Gemini モデルを使った高速プロトタイピングに最適ですが、「プレイグラウンドで動く」から「本番で安定稼働する」までには、プロジェクト分析・コード整形・インフラ構築・CI/CD・監視・セキュリティが必要です。これらをスキルで自動化します。
+Google AI Studio は Gemini モデルを使った高速プロトタイピングに最適ですが、「プレイグラウンドで動く」から「本番で安定稼働する」までには、プロジェクト分析・コード整形・インフラ構築・CI/CD・監視・セキュリティが必要です。これらをスキルで自動化します。デプロイ先として **Google Cloud Run** と **Vercel** の両方に対応しています。
 
 ## Skills
 
@@ -14,7 +14,7 @@ Google AI Studio は Gemini モデルを使った高速プロトタイピング�
 |-------|-------------|------------------|
 | **[migrate-wizard](skills/migrate-wizard/)** | 全ステップをワンパスで実行するウィザード。自動検出 → 一括質問 → 順次実行 | "本番に移行して", "migrate to production", "ワンパスでマイグレーション" |
 
-> **初めての方はこれだけで OK。** 完了済みステップは自動スキップ、途中参加も可能です。v1 は Cloud Run のみ対応。
+> **初めての方はこれだけで OK。** 完了済みステップは自動スキップ、途中参加も可能です。Cloud Run / Vercel 対応。
 
 ### 初期セットアップ（Step 0）
 
@@ -56,6 +56,20 @@ Google AI Studio は Gemini モデルを使った高速プロトタイピング�
 
 > **Note:** `graduate-from-ai-studio` は `cloud-run-deploy` と `ci-cd-github-actions` の機能を統合しています。個別のスキルは単体でも利用可能です。
 
+#### Vercel デプロイ
+
+| Skill | Description | Trigger Examples |
+|-------|-------------|------------------|
+| [vercel-ai-studio-export](skills/vercel-ai-studio-export/) | AI Studio エクスポートの構造ナレッジ | — (migrate-wizard から自動参照) |
+| [vercel-gcp-project-identification](skills/vercel-gcp-project-identification/) | GCP プロジェクト特定ナレッジ | — (migrate-wizard から自動参照) |
+| [vercel-nextjs-config](skills/vercel-nextjs-config/) | Next.js の Vercel 向け設定調整 | "Vercel用にnext.config直して", "fix next config for Vercel" |
+| [vercel-link](skills/vercel-link/) | Vercel プロジェクトへのリンク | "Vercelにリンクして", "vercel link" |
+| [vercel-env](skills/vercel-env/) | Vercel 環境変数管理 | "Vercel環境変数設定して", "set Vercel env" |
+| [vercel-deploy](skills/vercel-deploy/) | Vercel デプロイ（プレビュー→本番） | "Vercelにデプロイ", "deploy to Vercel" |
+| [vercel-firebase-auth-domain](skills/vercel-firebase-auth-domain/) | Firebase Auth authorized domain 追加 | "Firebase認証ドメイン追加", "add auth domain" |
+
+> `migrate-wizard` が Vercel パスを選択した場合、これらのスキルは自動的にオーケストレーションされます。
+
 ### 運用・セキュリティ
 
 | Skill | Description | Trigger Examples |
@@ -70,27 +84,35 @@ flowchart TD
     Start["🧪 AI Studio Prototype"] --> A
 
     subgraph init["初期セットアップ"]
-        A["<b>0. analyze-and-document</b><br/>プロジェクト全体分析 → CLAUDE.md 生成"]
-        A --> B["<b>0.5 setup-dev-environment</b><br/>.claude/ 一括セットアップ<br/>(rules, skills, hooks, settings)"]
+        A["0. analyze-and-document\nプロジェクト全体分析 → CLAUDE.md 生成"]
+        A --> B["0.5 setup-dev-environment\n.claude/ 一括セットアップ\n(rules, skills, hooks, settings)"]
     end
 
     subgraph code["コード整形・リポ構築"]
-        C["<b>1. export-from-ai-studio</b><br/>コード抽出・整形<br/>firebase-applet-config.json サニタイズ"]
-        C --> D["<b>2. repo-initializer-google</b><br/>GitHub リポ作成 + 初期構成"]
+        C["1. export-from-ai-studio\nコード抽出・整形\nfirebase-applet-config.json サニタイズ"]
+        C --> D["2. repo-initializer-google\nGitHub リポ作成 + 初期構成"]
     end
 
     subgraph deploy["デプロイ・インフラ"]
-        E["<b>3. graduate-from-ai-studio</b><br/>Dockerfile + IaC + CI/CD + Firebase<br/>= cloud-run-deploy + ci-cd-github-actions"]
+        E["3. graduate-from-ai-studio\nDockerfile + IaC + CI/CD + Firebase\n= cloud-run-deploy + ci-cd-github-actions"]
+        E2A["3a. vercel-nextjs-config\nNext.js の Vercel 向け設定調整"]
+        E2B["3b. vercel-link\nVercel プロジェクトへのリンク"]
+        E2C["3c. vercel-env\nVercel 環境変数管理"]
+        E2D["3d. vercel-deploy\nVercel デプロイ（プレビュー→本番）"]
+        E2E["3e. vercel-firebase-auth-domain\nFirebase Auth authorized domain 追加"]
+        E2A --> E2B --> E2C --> E2D --> E2E
     end
 
     subgraph ops["運用・セキュリティ"]
-        F["<b>4. monitoring-sentry-datadog</b><br/>監視・アラート設定"]
-        F --> G["<b>5. security-hardening-gcp</b><br/>IAM, Secret Manager, API Key 制限"]
+        F["4. monitoring-sentry-datadog\n監視・アラート設定"]
+        F --> G["5. security-hardening-gcp\nIAM, Secret Manager, API Key 制限"]
     end
 
     B --> C
     D --> E
+    D --> E2A
     E --> F
+    E2E --> F
     G --> Prod["🚀 Production"]
 
     style Start fill:#f9f,stroke:#333
@@ -138,7 +160,7 @@ Claude Code にお任せする方法です。スキルがインフラ構築か�
 
 # Vercel にデプロイ
 「Vercelにデプロイ」 or 「deploy to Vercel」
-→ vercel-railway-deploy スキルが起動
+→ vercel-deploy スキルが起動（vercel-link, vercel-env 等も個別利用可）
 
 # CI/CD パイプラインを追加・修正
 「CI/CD設定して」 or 「add GitHub Actions」
@@ -240,13 +262,129 @@ curl https://YOUR_SERVICE_URL/health
 
 ### Vercel
 
-> **TODO:** Vercel デプロイガイドは準備中です。現時点では [vercel-railway-deploy](skills/vercel-railway-deploy/) スキルを参照してください。
->
-> 対応予定:
-> - Next.js / React SPA の Vercel デプロイ手順
-> - 環境変数の設定（Gemini API Key, Firebase config）
-> - Firestore との接続設定
-> - カスタムドメイン設定
+`migrate-wizard` で Vercel パスを選択済み、または個別の Vercel スキルを実行済みであれば、`vercel.json` と Next.js 設定が生成されています。以下の手順で手動デプロイできます。
+
+#### 初回セットアップ
+
+```bash
+# 1. Vercel CLI インストール（未インストールの場合）
+npm i -g vercel
+
+# 2. Vercel にログイン
+vercel login
+
+# 3. プロジェクトをリンク（--project と --scope を明示指定）
+vercel link --yes --project YOUR_PROJECT_NAME --scope YOUR_SCOPE
+
+# 4. 環境変数を設定
+echo "YOUR_GEMINI_API_KEY" | vercel env add GEMINI_API_KEY production
+echo "YOUR_GEMINI_API_KEY" | vercel env add GEMINI_API_KEY preview
+echo "YOUR_GEMINI_API_KEY" | vercel env add GEMINI_API_KEY development
+
+# Firebase 設定（NEXT_PUBLIC_ はクライアントに公開される）
+vercel env add NEXT_PUBLIC_FIREBASE_API_KEY production
+vercel env add NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN production
+vercel env add NEXT_PUBLIC_FIREBASE_PROJECT_ID production
+
+# 5. ローカル用の .env.local を取得
+vercel env pull .env.local
+```
+
+#### 方法 A: Git 連携自動デプロイ（推奨）
+
+> **`git push` = AI Studio の「Publish」ボタン。** main に push するだけで自動デプロイされます。
+
+**初回のみ: Vercel Dashboard で Git 連携を設定**
+
+1. [Vercel Dashboard](https://vercel.com) → プロジェクト → Settings → Git
+2. GitHub リポジトリを接続
+3. Production Branch を `main` に設定
+
+**デプロイ（初回も2回目以降も同じ）:**
+
+```bash
+git add .
+git commit -m "Update feature X"
+git push origin main
+```
+
+Vercel が自動で以下を実行します:
+
+1. Next.js プロジェクトをビルド
+2. Edge Network にデプロイ
+3. プレビュー URL を PR コメントに投稿（PR の場合）
+
+#### 方法 B: CLI 手動デプロイ
+
+> Git 連携を使わず、ローカルから直接デプロイする方法。ワークツリーからも直接デプロイできます。
+
+```bash
+# プレビューデプロイ（動作確認用）
+vercel deploy
+
+# 本番デプロイ
+vercel deploy --prod
+```
+
+#### デプロイ後: Firebase Auth 認可ドメイン追加
+
+Firebase Authentication（`signInWithPopup` / `signInWithRedirect`）を使っている場合、Vercel のドメインを Firebase Auth の承認済みドメインに追加しないと `auth/unauthorized-domain` エラーになります。
+
+```bash
+# GCP プロジェクト ID を特定（firebase-applet-config.json から取得）
+PROJECT_ID=$(jq -r '.projectId' firebase-applet-config.json)
+
+# 現在の承認済みドメインを取得
+ACCESS_TOKEN=$(gcloud auth print-access-token)
+curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
+  "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config" \
+  | jq '.authorizedDomains'
+
+# Vercel ドメインを追加
+CURRENT=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
+  "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config" \
+  | jq '.authorizedDomains')
+NEW_DOMAINS=$(echo "$CURRENT" | jq '. + ["YOUR_PROJECT.vercel.app"]')
+curl -s -X PATCH -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config?updateMask=authorizedDomains" \
+  -d "{\"authorizedDomains\": $NEW_DOMAINS}"
+
+```
+
+#### デプロイ後: Firestore ルール・インデックス
+
+```bash
+# Firestore ルールのデプロイ（Firebase CLI 必要）
+firebase deploy --only firestore --project $PROJECT_ID
+```
+
+#### デプロイの確認
+
+```bash
+# 本番 URL を確認
+vercel ls
+
+# 環境変数の確認
+vercel env ls
+
+# ビルドログの確認（直近のデプロイ）
+vercel logs YOUR_PROJECT.vercel.app
+
+# ヘルスチェック
+curl https://YOUR_PROJECT.vercel.app
+```
+
+#### カスタムドメイン設定（任意）
+
+```bash
+# CLI でドメイン追加
+vercel domains add your-custom-domain.com
+
+# または Vercel Dashboard → Project → Settings → Domains
+```
+
+> **Note:** カスタムドメインを追加した場合、Firebase Auth の承認済みドメインにもそのドメインを追加してください。
 
 ## Documentation
 
