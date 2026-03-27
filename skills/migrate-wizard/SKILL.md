@@ -455,7 +455,11 @@ Step 3a のみ実行 (ファイル生成)。Step 3b-3e は手動コマンドと�
 - **`skills/vercel-ai-studio-export/SKILL.md` を Read** — AI Studio エクスポートの構造理解のためナレッジ参照
 - `firebase-applet-config.json` の apiKey をプレースホルダーに置換
 - Firebase 初期化コードを環境変数注入に変更
-- `.env.example` を生成/更新
+- **Gemini 実使用を検出** — `src/` 以下で `@google/genai` 等の import を検索。未使用なら:
+  - `package.json` から Gemini SDK 依存を削除
+  - `vite.config.ts` から `GEMINI_API_KEY` expose を削除
+  - `.env.example` から `GEMINI_API_KEY` を除外
+- `.env.example` を生成/更新 (Gemini 使用時のみ `GEMINI_API_KEY` を含む)
 - 言語は `package.json` (Node.js) or `requirements.txt` (Python) から自動検出
 
 **Step 2: repo-initializer-google** (未完了/部分完了の場合)
