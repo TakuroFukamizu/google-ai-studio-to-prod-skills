@@ -213,7 +213,7 @@ Use templates at `templates/terraform/`. Generate into `infra/terraform/`:
 **Resources to create:**
 - `google_artifact_registry_repository` — Docker image registry
 - `google_cloud_run_v2_service` — Cloud Run service
-- `google_secret_manager_secret` + `_version` — For GEMINI_API_KEY and other secrets
+- `google_secret_manager_secret` + `_version` — For secrets (**Gemini SDK 使用時のみ `GEMINI_API_KEY` を含める。** 未使用時は `FIREBASE_API_KEY` 等の他のシークレットのみ)
 - `google_service_account` — Dedicated SA for Cloud Run
 - `google_project_iam_member` — SA permissions (Secret Manager accessor, Firestore user)
 - `google_cloud_run_v2_service_iam_member` — Public access (if needed)

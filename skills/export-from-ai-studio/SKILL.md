@@ -128,14 +128,21 @@ AI Studio のエクスポートは、プロジェクトが Gemini API を実際�
 
 **検出手順:**
 
-1. **ソースコードで import を検索:**
-   - Node.js: `src/` 以下の `.ts`, `.tsx`, `.js`, `.jsx` ファイルで `@google/genai` or `@google/generative-ai` or `google-generativeai` の import/require を検索
-   - Python: `.py` ファイルで `import google.generativeai` or `from google import genai` or `import genai` を検索
-   - `vite.config.ts`, `next.config.js` 等のビルド設定ファイルは**検索対象外** (expose しているだけなので)
+1. **プロジェクト全体で Gemini SDK の import/require を検索:**
+   - **検索対象:** プロジェクトルート以下のすべての `.ts`, `.tsx`, `.js`, `.jsx`, `.py` ファイル
+     - `src/`, `server.ts`, `api/`, `functions/`, `app/api/`, `pages/api/`, `lib/`, `utils/` 等すべて含む
+   - **検索除外:** `node_modules/`, `dist/`, `.next/`, `vite.config.ts`, `next.config.*`, `*.config.ts` (ビルド設定は expose しているだけなので除外)
+   - **Node.js 検索パターン:** `@google/genai`, `@google/generative-ai`, `google-generativeai` の import/require
+   - **Python 検索パターン:** `import google.generativeai`, `from google import genai`, `import genai`
 
-2. **import が見つかった → Gemini 使用中。** 通常のフロー (API Key 環境変数化、SDK 更新等) を実行。
+2. **`GEMINI_API_KEY` の実使用を検索** (SDK import がなくても REST 直叩きの可能性):
+   - `process.env.GEMINI_API_KEY`, `os.environ["GEMINI_API_KEY"]`, `os.getenv("GEMINI_API_KEY")` をソースコードで検索
+   - `generativelanguage.googleapis.com` (Gemini REST API endpoint) をソースコードで検索
+   - **検索除外:** `.env*`, `*.config.*`, `README*`, `*.md` (設定/ドキュメントファイルは除外)
 
-3. **import が見つからない → Gemini 未使用。** 以下のクリーンアップを実行:
+3. **import も `GEMINI_API_KEY` 実使用も見つかった → Gemini 使用中。** 通常のフロー (API Key 環境変数化、SDK 更新等) を実行。
+
+4. **どちらも見つからない → Gemini 未使用。** 以下のクリーンアップを実行:
 
 ### Gemini 未使用時のクリーンアップ
 
@@ -172,7 +179,14 @@ APP_URL="MY_APP_URL"
 - 「`GEMINI_API_KEY` を `.env.local` に設定」のステップを削除
 - Gemini を使わないプロジェクトであることを明記
 
-**e. ユーザーに報告:**
+**e. 完了確認** (すべて満たすことを検証):
+- `package.json` に `@google/genai` 等が存在しない
+- `package-lock.json` / `yarn.lock` が更新済み (lockfile に残骸がない)
+- プロジェクト内のソースコード (`.config.*` 除く) に `process.env.GEMINI_API_KEY` が存在しない
+- `.env.example` に `GEMINI_API_KEY` が存在しない
+- README に `GEMINI_API_KEY` の設定手順が存在しない
+
+**f. ユーザーに報告:**
 ```
 Gemini SDK (@google/genai) は dependencies に含まれていますが、
 ソースコードでは使用されていません。
