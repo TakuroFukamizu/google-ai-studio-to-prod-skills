@@ -129,9 +129,13 @@ Phase 3 の Plan Presentation と Phase 5 の Summary はこのモードに応�
    - 存在しない or 空 → Step 0 未完了
 
 3. **apiKey サニタイズ状態を確認**
-   - `firebase-applet-config.json` に `AIzaSy` で始まる apiKey がない → Step 1 完了
-   - `.env.example` が存在し `GEMINI_API_KEY` を含む → Step 1 完了の追加条件
-   - どちらか欠けている → Step 1 未完了
+   - `firebase-applet-config.json` に `AIzaSy` で始まる apiKey がない → Step 1 完了 (の条件1)
+   - **Gemini 実使用を検出** (export-from-ai-studio スキルの検出手順に従う):
+     - ソースコードで Gemini SDK import または `GEMINI_API_KEY` 実使用を検索
+     - **使用あり:** `.env.example` に `GEMINI_API_KEY` を含む → Step 1 完了 (の条件2)
+     - **使用なし:** `.env.example` に `GEMINI_API_KEY` がない + Gemini 依存が `package.json` にない → Step 1 完了 (の条件2)
+   - Gemini 使用の有無を `gemini_used: boolean` として記録し、後続ステップ (Step 3.5, Step 5) に渡す
+   - 条件が満たされていない → Step 1 未完了
 
 4. **リポジトリ状態を確認**
    - `.git` ディレクトリが存在する
@@ -455,7 +459,11 @@ Step 3a のみ実行 (ファイル生成)。Step 3b-3e は手動コマンドと�
 - **`skills/vercel-ai-studio-export/SKILL.md` を Read** — AI Studio エクスポートの構造理解のためナレッジ参照
 - `firebase-applet-config.json` の apiKey をプレースホルダーに置換
 - Firebase 初期化コードを環境変数注入に変更
-- `.env.example` を生成/更新
+- **Gemini 実使用を検出** — プロジェクト全体 (`src/`, `server.ts`, `api/`, `lib/` 等。`node_modules/`, `*.config.*` 除く) で Gemini SDK import + `GEMINI_API_KEY` 実使用を検索。未使用なら:
+  - `package.json` から Gemini SDK 依存を削除
+  - `vite.config.ts` から `GEMINI_API_KEY` expose を削除
+  - `.env.example` から `GEMINI_API_KEY` を除外
+- `.env.example` を生成/更新 (Gemini 使用時のみ `GEMINI_API_KEY` を含む)
 - 言語は `package.json` (Node.js) or `requirements.txt` (Python) から自動検出
 
 **Step 2: repo-initializer-google** (未完了/部分完了の場合)
@@ -492,10 +500,15 @@ Step 3a のみ実行 (ファイル生成)。Step 3b-3e は手動コマンドと�
 1. Q1 = 新規の場合: `gcloud projects create PROJECT_ID` + `firebase projects:addfirebase PROJECT_ID`
 2. API 有効化: `gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com cloudbuild.googleapis.com iam.googleapis.com --project=PROJECT_ID`
 3. Artifact Registry リポジトリ作成: `gcloud artifacts repositories create SERVICE --repository-format=docker --location=REGION --project=PROJECT_ID`
-4. Secret Manager にシークレット格納: `echo -n "VALUE" | gcloud secrets create gemini-api-key --data-file=- --project=PROJECT_ID` (`.env` / `.env.local` から値を読み取り、なければユーザーに確認)
+4. Secret Manager にシークレット格納 **(Gemini 使用時のみ):**
+   - `gemini_used = true` の場合: `echo -n "VALUE" | gcloud secrets create gemini-api-key --data-file=- --project=PROJECT_ID` (`.env` / `.env.local` から値を読み取り、なければユーザーに確認)
+   - `gemini_used = false` の場合: `gemini-api-key` シークレットの作成をスキップ
+   - **FIREBASE_API_KEY 等、Gemini 以外のシークレットは常に作成する**
 5. 専用 SA 作成: `gcloud iam service-accounts create SERVICE-sa --project=PROJECT_ID`
 6. IAM 設定: `gcloud projects add-iam-policy-binding PROJECT_ID --member=serviceAccount:SERVICE-sa@PROJECT_ID.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor` (+ `roles/datastore.user`)
-7. Cloud Run デプロイ: `gcloud run deploy SERVICE --source . --region REGION --service-account SERVICE-sa@PROJECT_ID.iam.gserviceaccount.com --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" --allow-unauthenticated --project=PROJECT_ID`
+7. Cloud Run デプロイ:
+   - `gemini_used = true`: `gcloud run deploy SERVICE --source . --region REGION --service-account SERVICE-sa@PROJECT_ID.iam.gserviceaccount.com --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" --allow-unauthenticated --project=PROJECT_ID`
+   - `gemini_used = false`: `gcloud run deploy SERVICE --source . --region REGION --service-account SERVICE-sa@PROJECT_ID.iam.gserviceaccount.com --allow-unauthenticated --project=PROJECT_ID` (--set-secrets に GEMINI_API_KEY を含めない)
 8. Firebase デプロイ: `firebase deploy --only firestore:rules,firestore:indexes --project=PROJECT_ID` (`firebase` CLI がある場合)
 9. デプロイ確認: `gcloud run services describe SERVICE --region REGION --project=PROJECT_ID --format='value(status.url)'` → `curl SERVICE_URL/health`
 

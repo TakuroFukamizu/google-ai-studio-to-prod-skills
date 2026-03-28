@@ -213,7 +213,7 @@ Use templates at `templates/terraform/`. Generate into `infra/terraform/`:
 **Resources to create:**
 - `google_artifact_registry_repository` — Docker image registry
 - `google_cloud_run_v2_service` — Cloud Run service
-- `google_secret_manager_secret` + `_version` — For GEMINI_API_KEY and other secrets
+- `google_secret_manager_secret` + `_version` — For secrets (**Gemini SDK 使用時のみ `GEMINI_API_KEY` を含める。** 未使用時は `FIREBASE_API_KEY` 等の他のシークレットのみ)
 - `google_service_account` — Dedicated SA for Cloud Run
 - `google_project_iam_member` — SA permissions (Secret Manager accessor, Firestore user)
 - `google_cloud_run_v2_service_iam_member` — Public access (if needed)
@@ -277,9 +277,11 @@ Infer composite indexes from Firestore queries in the codebase. Look for pattern
 
 ### Environment Variables Update
 
-Update `.env.example` with all detected variables plus new ones:
+Update `.env.example` with all detected variables plus new ones.
+**`GEMINI_API_KEY` は、ソースコードで Gemini SDK が実際に import/使用されている場合のみ含める** (export-from-ai-studio スキルの「Gemini 実使用の検出」を参照)。
+
 ```
-# Existing
+# Existing (Gemini SDK を使用している場合のみ)
 GEMINI_API_KEY=your-gemini-api-key
 APP_URL=https://your-service-url.run.app
 
